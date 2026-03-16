@@ -14,6 +14,7 @@ Un ADR (Architecture Decision Record) capture une decision architecturale import
 | [ADR-002](002-dashboard-react-maison.md) | Dashboard React fait maison (pas Metabase/Superset) | Accepte | 2026-03-16 |
 | [ADR-003](003-orchestration-cron-simple.md) | Orchestration ETL par cron simple (pas Airflow) | Accepte | 2026-03-16 |
 | [ADR-004](004-communication-via-postgresql.md) | Communication ETL-API via PostgreSQL uniquement | Accepte | 2026-03-16 |
+| [ADR-005](005-utilisation-5-sources-donnees.md) | Utilisation des 5 sources de donnees fournies | Accepte | 2026-03-16 |
 
 ## Statuts possibles
 

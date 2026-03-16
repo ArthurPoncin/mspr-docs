@@ -197,11 +197,29 @@ biometric_entries (
     user_id         BIGINT REFERENCES users(id),
     date            DATE NOT NULL,
     weight_kg       DECIMAL(5,2),
-    sleep_hours     DECIMAL(4,2),
+    height_cm       DECIMAL(5,1),
+    bmi             DECIMAL(5,2),
+    fat_percentage  DECIMAL(5,2),
     heart_rate_rest INTEGER,
+    heart_rate_avg  INTEGER,
+    heart_rate_max  INTEGER,
     blood_pressure  VARCHAR(20),
     source          VARCHAR(50),
     status          VARCHAR(20) DEFAULT 'BRUT',
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Catalogue exercices (referentiel depuis ExerciseDB)
+exercises (
+    id              BIGSERIAL PRIMARY KEY,
+    external_id     VARCHAR(100) UNIQUE,            -- exerciseId ExerciseDB
+    name            VARCHAR(255) NOT NULL,
+    exercise_type   VARCHAR(50),                    -- STRENGTH, CARDIO, etc.
+    body_parts      TEXT,                           -- JSON array ou CSV
+    target_muscles  TEXT,                           -- JSON array ou CSV
+    equipments      TEXT,                           -- JSON array ou CSV
+    instructions    TEXT,
+    source          VARCHAR(50) DEFAULT 'EXERCISEDB',
     created_at      TIMESTAMP DEFAULT NOW()
 );
 
@@ -243,26 +261,57 @@ Seules les donnees au statut **VALIDE** alimentent les KPIs du dashboard.
 
 ### Sources selectionnees
 
-| # | Dataset | Domaine | Format | Justification |
-|---|---|---|---|---|
-| 1 | **MyFitnessPal / Nutritionix** (Kaggle) | Nutrition | CSV | Donnees riches : calories, macronutriments par aliment. Couvre l'axe nutrition et les KPIs associes. |
-| 2 | **Fitbit Activity & Sleep** (Kaggle) | Sport + Biometrie | CSV/JSON | Frequence cardiaque, pas, sommeil, calories brulees. Couvre les axes sport ET biometrie en une seule source. |
-| 3 | **Donnees utilisateurs simulees** | Business | Genere (faker) | Profils utilisateurs, engagement, statut premium. Necessaire pour les KPIs business. |
+> **Strategie :** Utiliser les 5 sources fournies par le sujet pour maximiser la couverture
+> des 3 axes (nutrition, sport, biometrie) et demontrer la capacite a traiter des formats
+> heterogenes (CSV plat, CSV profils complexes, JSON imbrique).
+> Voir le document detaille : [`data/SOURCES.md`](data/SOURCES.md)
+
+| # | Dataset | Domaine | Format | Volume | Lien |
+|---|---|---|---|---|---|
+| 1 | **Daily Food & Nutrition** | Nutrition | CSV | ~1000 entrees | [Kaggle](https://www.kaggle.com/datasets/adilshamim8/daily-food-and-nutrition-dataset) |
+| 2 | **Diet Recommendations** | Nutrition + Profils sante | CSV | 1 000 profils | [Kaggle](https://www.kaggle.com/datasets/ziya07/diet-recommendations-dataset) |
+| 3 | **ExerciseDB API** | Catalogue exercices | JSON (imbrique) | 11 000+ exercices | [GitHub](https://github.com/ExerciseDB/exercisedb-api/tree/main) |
+| 4 | **Gym Members Exercise** | Profils utilisateurs + Biometrie | CSV | 973 echantillons | [Kaggle](https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset) |
+| 5 | **Fitness Tracker** | Activite quotidienne | CSV | ~1000 entrees | [Kaggle](https://www.kaggle.com/datasets/nadeemajeedch/fitness-tracker-dataset) |
+| 6 | **Donnees simulees (faker)** | Business / Engagement | Genere | 500 utilisateurs | Script `fake_data_generator.py` |
+
+### Mapping sources vers tables cibles
+
+| Source | Table(s) cible | Colonnes exploitees |
+|---|---|---|
+| Daily Food & Nutrition | `nutrition_entries` | Food_Item, Calories, Protein, Carbs, Fat, Fiber, Sugars, Meal_Type |
+| Diet Recommendations | `users` (enrichissement) | Patient_ID, Age, Gender, Weight, Height, BMI, Disease_Type, Diet_Recommendation |
+| ExerciseDB API | `exercises` (table referentiel) | name, exerciseType, bodyParts, targetMuscles, equipments, instructions |
+| Gym Members Exercise | `users` + `biometric_entries` + `exercise_entries` | Age, Gender, Weight, Height, Max_BPM, Avg_BPM, Resting_BPM, Calories_Burned, Workout_Type, Fat_Percentage, BMI |
+| Fitness Tracker | `exercise_entries` (fusion avec Gym Members) | Steps, Calories_Burn, Active_Minutes, profils activite |
+| Donnees simulees | `users` (complement) | email, username, is_premium, last_activity, engagement, satisfaction |
 
 ### Couverture des 3 axes du sujet
 
-| Axe | Dataset source | Donnees cles |
+| Axe | Sources utilisees | Donnees cles |
 |---|---|---|
-| Nutrition | MyFitnessPal / Nutritionix | Calories, proteines, glucides, lipides par repas |
-| Sport | Fitbit Activity | Pas, distance, duree, calories brulees |
-| Biometrie | Fitbit Sleep + HR | Heures de sommeil, frequence cardiaque au repos, poids |
+| **Nutrition** | Daily Food & Nutrition + Diet Recommendations | Calories, macronutriments par repas, besoins dietetiques, recommandations |
+| **Sport** | ExerciseDB + Gym Members + Fitness Tracker | Catalogue exercices (referentiel), seances effectuees, steps, calories brulees, duree |
+| **Biometrie** | Gym Members + Diet Recommendations | Poids, taille, BMI, fat%, BPM repos/moy/max, pression arterielle |
+
+### Cas de nettoyage remarquables (valeur pedagogique)
+
+Ces cas seront mis en avant dans le rapport technique et la soutenance :
+
+| Cas | Source(s) | Traitement |
+|---|---|---|
+| **Fusion de datasets quasi-identiques** | Gym Members + Fitness Tracker | Deduplication, normalisation des colonnes, detection des doublons inter-sources |
+| **Aplatissement de JSON imbrique** | ExerciseDB | Transformation arrays (targetMuscles, equipments) en relations N-N ou colonnes concatenees |
+| **Croisement de sources heterogenes** | Diet Reco + Gym Members | Rapprochement de profils utilisateurs par criteres demographiques (age, genre, poids) |
+| **Generation de donnees complementaires** | Faker | Enrichissement des profils avec donnees business (engagement, premium, satisfaction) |
 
 ### Donnees simulees (faker)
 
-Le script Python `generate_fake_data.py` produit :
+Le script Python `fake_data_generator.py` produit :
 - **500 utilisateurs** avec profils varies (age, genre, objectif, statut premium)
 - **Historique d'activite** : dates de connexion, frequence d'utilisation
 - **Metriques business** : taux d'engagement, score satisfaction (1-10)
+- **Rattachement** : chaque entree des datasets Kaggle est rattachee a un utilisateur simule
 
 ---
 
@@ -310,15 +359,19 @@ Pour chaque source de donnees :
 
 ### Regles de nettoyage metier
 
-| Champ | Regle | Action si violation |
-|---|---|---|
-| `calories` | 0 - 10 000 kcal | Rejet de la ligne |
-| `protein_g`, `carbs_g`, `fat_g` | >= 0 | Mise a 0 si negatif |
-| `heart_rate_avg` | 30 - 250 bpm | Rejet de la ligne |
-| `sleep_hours` | 0 - 24h | Rejet de la ligne |
-| `weight_kg` | 20 - 300 kg | Rejet de la ligne |
-| `date` | Format ISO, pas dans le futur | Rejet de la ligne |
-| `email` | Format valide, unique | Deduplication |
+| Champ | Regle | Action si violation | Sources concernees |
+|---|---|---|---|
+| `calories` | 0 - 10 000 kcal | Rejet de la ligne | Daily Food, Gym Members, Fitness Tracker |
+| `protein_g`, `carbs_g`, `fat_g` | >= 0 | Mise a 0 si negatif | Daily Food |
+| `weight_kg` | 20 - 300 kg | Rejet de la ligne | Gym Members, Diet Reco |
+| `height_cm` | 50 - 250 cm | Rejet de la ligne | Gym Members, Diet Reco |
+| `bmi` | 10 - 80 | Recalcul depuis poids/taille | Gym Members, Diet Reco |
+| `bpm_max` / `bpm_avg` / `bpm_rest` | 30 - 250 bpm | Rejet de la ligne | Gym Members |
+| `fat_percentage` | 2 - 70 % | Rejet de la ligne | Gym Members |
+| `session_duration` | 0 - 480 min | Rejet de la ligne | Gym Members, Fitness Tracker |
+| `steps` | 0 - 100 000 | Rejet de la ligne | Fitness Tracker |
+| `exercise_name` | Non vide, non null | Rejet de la ligne | ExerciseDB |
+| `email` | Format valide, unique | Deduplication | Donnees simulees |
 
 ### Orchestration
 
@@ -346,8 +399,12 @@ etl/
 ├── generators/
 │   └── fake_data_generator.py
 ├── data/                     # datasets bruts (CSV/JSON)
-│   ├── nutrition_raw.csv
-│   └── fitbit_raw.json
+│   ├── daily_food_nutrition.csv
+│   ├── diet_recommendations.csv
+│   ├── gym_members_exercise.csv
+│   ├── fitness_tracker.csv
+│   └── exercisedb/           # JSON exporte depuis le fork GitHub
+│       └── exercises.json
 └── logs/                     # logs fichier en complement de la BDD
 ```
 
